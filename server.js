@@ -4,10 +4,12 @@ const cors = require('cors');
 require('dotenv').config();
 
 const app = express();
-app.use(cors());
+
+// --- MIDDLEWARE ---
+app.use(cors()); // Allows Vercel to talk to Render
 app.use(express.json());
 
-// Connect to Aiven Cloud Database
+// --- DATABASE CONNECTION ---
 const db = mysql.createConnection({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -15,7 +17,7 @@ const db = mysql.createConnection({
   database: process.env.DB_NAME,
   port: process.env.DB_PORT,
   ssl: {
-    rejectUnauthorized: false // Required for secure cloud connection
+    rejectUnauthorized: false // Required for Aiven Cloud
   }
 });
 
@@ -26,7 +28,7 @@ db.connect(err => {
   }
   console.log('Connected to Aiven Cloud MySQL Database!');
 
-  // Auto-create our tables in the cloud so we don't have to do it manually!
+  // Auto-create tables
   db.query(`CREATE TABLE IF NOT EXISTS resort_bookings (
     id INT AUTO_INCREMENT PRIMARY KEY,
     guest_name VARCHAR(255) NOT NULL,
@@ -43,7 +45,9 @@ db.connect(err => {
   )`);
 });
 
-// --- ROUTES ---
+// --- API ROUTES ---
+
+// 1. Get Monthly Stats
 app.get('/api/stats', (req, res) => {
   const currentMonth = new Date().getMonth() + 1;
   const currentYear = new Date().getFullYear();
@@ -62,6 +66,7 @@ app.get('/api/stats', (req, res) => {
   });
 });
 
+// 2. Get All Bookings for Calendar
 app.get('/api/bookings', (req, res) => {
   db.query('SELECT * FROM resort_bookings', (err, resorts) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -73,6 +78,7 @@ app.get('/api/bookings', (req, res) => {
   });
 });
 
+// 3. Book Resort
 app.post('/api/book/resort', (req, res) => {
   const { name, phone, startDate, endDate } = req.body;
   db.query('INSERT INTO resort_bookings (guest_name, phone, start_date, end_date) VALUES (?, ?, ?, ?)', 
@@ -83,6 +89,7 @@ app.post('/api/book/resort', (req, res) => {
   });
 });
 
+// 4. Book Pool
 app.post('/api/book/pool', (req, res) => {
   const { name, phone, date } = req.body;
   db.query('INSERT INTO pool_bookings (guest_name, phone, booking_date) VALUES (?, ?, ?)', 
