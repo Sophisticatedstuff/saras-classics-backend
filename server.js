@@ -9,7 +9,7 @@ const app = express();
 app.use(cors()); 
 app.use(express.json());
 
-// --- DATABASE CONNECTION ---
+// --- DATABASE CONNECTION (Aiven) ---
 const db = mysql.createConnection({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -28,7 +28,7 @@ db.connect(err => {
   }
   console.log('Connected to Aiven Cloud MySQL Database!');
 
-  // Auto-create tables
+  // Auto-create tables if they don't exist
   db.query(`CREATE TABLE IF NOT EXISTS resort_bookings (
     id INT AUTO_INCREMENT PRIMARY KEY,
     guest_name VARCHAR(255) NOT NULL,
@@ -44,6 +44,34 @@ db.connect(err => {
     booking_date DATE NOT NULL
   )`);
 });
+
+// --- TELEGRAM HELPER FUNCTION ---
+const notifyOwnerTelegram = async (messageText) => {
+  try {
+    const url = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`;
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        chat_id: process.env.TELEGRAM_CHAT_ID,
+        text: messageText,
+        parse_mode: 'Markdown' // Allows formatting like *bold*
+      })
+    });
+
+    if (response.ok) {
+      console.log('✅ Telegram notification sent!');
+    } else {
+      const data = await response.json();
+      console.error('❌ Telegram API Error:', data.description);
+    }
+  } catch (error) {
+    console.error('❌ Failed to send Telegram message:', error);
+  }
+};
 
 // --- API ROUTES ---
 
@@ -81,7 +109,7 @@ app.get('/api/bookings', (req, res) => {
   });
 });
 
-// 3. Book Resort (Total Mutual Exclusivity)
+// 3. Book Resort (Total Mutual Exclusivity + Telegram)
 app.post('/api/book/resort', (req, res) => {
   const { name, phone, startDate, endDate } = req.body;
 
@@ -103,13 +131,18 @@ app.post('/api/book/resort', (req, res) => {
       const insertSql = 'INSERT INTO resort_bookings (guest_name, phone, start_date, end_date) VALUES (?, ?, ?, ?)';
       db.query(insertSql, [name, phone, startDate, endDate], (err) => {
         if (err) return res.status(500).json({ error: 'Database error during booking' });
+        
+        // --- SEND TELEGRAM ALERT ---
+        const msg = `🌴 *New Resort Booking!*\n\n*Guest:* ${name}\n*Phone:* ${phone}\n*Dates:* ${startDate} to ${endDate}`;
+        notifyOwnerTelegram(msg);
+
         res.json({ message: 'Resort booked successfully!' });
       });
     });
   });
 });
 
-// 4. Book Pool (Total Mutual Exclusivity)
+// 4. Book Pool (Total Mutual Exclusivity + Telegram)
 app.post('/api/book/pool', (req, res) => {
   const { name, phone, date } = req.body;
 
@@ -131,6 +164,11 @@ app.post('/api/book/pool', (req, res) => {
       const insertSql = 'INSERT INTO pool_bookings (guest_name, phone, booking_date) VALUES (?, ?, ?)';
       db.query(insertSql, [name, phone, date], (err) => {
         if (err) return res.status(500).json({ error: 'Database error' });
+        
+        // --- SEND TELEGRAM ALERT ---
+        const msg = `🏊 *New Pool Party!*\n\n*Guest:* ${name}\n*Phone:* ${phone}\n*Date:* ${date}`;
+        notifyOwnerTelegram(msg);
+
         res.json({ message: 'Pool booked successfully!' });
       });
     });
