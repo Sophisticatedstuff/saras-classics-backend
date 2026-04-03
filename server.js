@@ -6,7 +6,15 @@ require('dotenv').config();
 const app = express();
 
 // --- MIDDLEWARE ---
-app.use(cors()); 
+app.use(cors({
+  origin: [
+    'https://saras-classics-booking-tracker.vercel.app', // Your live Vercel site
+    'http://localhost:3000', // Local React (if you use it)
+    'http://localhost:5173'  // Local Vite (if you use it)
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  credentials: true
+}));
 app.use(express.json());
 
 // --- DATABASE CONNECTION (Aiven) ---
