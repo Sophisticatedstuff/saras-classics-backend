@@ -81,42 +81,59 @@ app.get('/api/bookings', (req, res) => {
   });
 });
 
-// 3. Book Resort (WITH MUTUAL EXCLUSION)
+// 3. Book Resort (Total Mutual Exclusivity)
 app.post('/api/book/resort', (req, res) => {
   const { name, phone, startDate, endDate } = req.body;
 
-  // Check for date overlaps before inserting
-  // Standard Overlap Formula: (StartA <= EndB) AND (EndA >= StartB)
-  const overlapCheck = `
-    SELECT * FROM resort_bookings 
-    WHERE (? <= end_date) AND (? >= start_date)
-  `;
+  // Check 1: Does this overlap with another Resort booking?
+  const checkResortSql = `SELECT id FROM resort_bookings WHERE (DATE(?) <= DATE(end_date)) AND (DATE(?) >= DATE(start_date))`;
+  
+  db.query(checkResortSql, [startDate, endDate], (err, resortResults) => {
+    if (err) return res.status(500).json({ error: 'Database check failed' });
+    if (resortResults.length > 0) return res.status(400).json({ error: 'Resort is already booked for these dates!' });
 
-  db.query(overlapCheck, [startDate, endDate], (err, results) => {
-    if (err) return res.status(500).json({ error: 'Availability check failed' });
+    // Check 2: Does this overlap with a Pool booking?
+    const checkPoolSql = `SELECT id FROM pool_bookings WHERE DATE(booking_date) >= DATE(?) AND DATE(booking_date) <= DATE(?)`;
+    
+    db.query(checkPoolSql, [startDate, endDate], (err, poolResults) => {
+      if (err) return res.status(500).json({ error: 'Database check failed' });
+      if (poolResults.length > 0) return res.status(400).json({ error: 'A pool party is already booked during these dates!' });
 
-    if (results.length > 0) {
-      // If any existing booking overlaps, block the new one
-      return res.status(400).json({ error: 'Dates already booked! Please select another range.' });
-    }
-
-    // No overlap found, proceed with booking
-    const insertSql = 'INSERT INTO resort_bookings (guest_name, phone, start_date, end_date) VALUES (?, ?, ?, ?)';
-    db.query(insertSql, [name, phone, startDate, endDate], (err) => {
-      if (err) return res.status(500).json({ error: 'Database error during booking' });
-      res.json({ message: 'Resort booked successfully!' });
+      // No conflicts found, insert the booking
+      const insertSql = 'INSERT INTO resort_bookings (guest_name, phone, start_date, end_date) VALUES (?, ?, ?, ?)';
+      db.query(insertSql, [name, phone, startDate, endDate], (err) => {
+        if (err) return res.status(500).json({ error: 'Database error during booking' });
+        res.json({ message: 'Resort booked successfully!' });
+      });
     });
   });
 });
 
-// 4. Book Pool (Allows multiple per day)
+// 4. Book Pool (Total Mutual Exclusivity)
 app.post('/api/book/pool', (req, res) => {
   const { name, phone, date } = req.body;
-  const sql = 'INSERT INTO pool_bookings (guest_name, phone, booking_date) VALUES (?, ?, ?)';
+
+  // Check 1: Is the Pool already booked on this day?
+  const checkPoolSql = `SELECT id FROM pool_bookings WHERE DATE(booking_date) = DATE(?)`;
   
-  db.query(sql, [name, phone, date], (err) => {
-    if (err) return res.status(500).json({ error: 'Database error' });
-    res.json({ message: 'Pool booked successfully!' });
+  db.query(checkPoolSql, [date], (err, poolResults) => {
+    if (err) return res.status(500).json({ error: 'Database check failed' });
+    if (poolResults.length > 0) return res.status(400).json({ error: 'The pool is already booked for this date!' });
+
+    // Check 2: Is the Resort booked on this day?
+    const checkResortSql = `SELECT id FROM resort_bookings WHERE DATE(start_date) <= DATE(?) AND DATE(end_date) >= DATE(?)`;
+    
+    db.query(checkResortSql, [date, date], (err, resortResults) => {
+      if (err) return res.status(500).json({ error: 'Database check failed' });
+      if (resortResults.length > 0) return res.status(400).json({ error: 'The resort is booked, so the pool is unavailable!' });
+
+      // No conflicts found, insert the booking
+      const insertSql = 'INSERT INTO pool_bookings (guest_name, phone, booking_date) VALUES (?, ?, ?)';
+      db.query(insertSql, [name, phone, date], (err) => {
+        if (err) return res.status(500).json({ error: 'Database error' });
+        res.json({ message: 'Pool booked successfully!' });
+      });
+    });
   });
 });
 
